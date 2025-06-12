@@ -15,10 +15,10 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 
-def save_figure(fig, fname, fpath='./results'):
+def save_figure(fig, fname, fpath='./results', dpi=300):
     '''A small wrapper around plt.savefig function'''
     
-    fig.savefig(os.path.join(fpath, fname), dpi=300, bbox_inches='tight')
+    fig.savefig(os.path.join(fpath, fname), dpi=dpi, bbox_inches='tight')
 
 def plot_evokeds_channels(evokeds:dict, title=None, palette='tab10', ax=None, show=True):
     '''Plot ERP with all channels displayed as a separate line'''

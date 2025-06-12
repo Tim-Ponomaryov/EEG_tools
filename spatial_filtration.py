@@ -256,8 +256,10 @@ class SpatialFilterFC():
             
             # Prepare arrays
             X, Y = ep1.get_data(copy=True), ep2.get_data(copy=True)
-            X = np.transpose(X, (1, 2, 0)) # (ch x time x epochs)
-            Y = np.transpose(Y, (1, 2, 0)) # (ch x time x epochs)
+        
+        # Adjust shapes
+        X = np.transpose(X, (1, 2, 0)) # (ch x time x epochs)
+        Y = np.transpose(Y, (1, 2, 0)) # (ch x time x epochs)
         
         # Calculater spatial filters
         W, d, A = FCsf(X, Y)
@@ -269,7 +271,7 @@ class SpatialFilterFC():
         if return_WdA:
             return W, d, A
     
-    def apply(self, epochs:mne.Epochs=None, pick_component=None):
+    def apply(self, epochs:mne.Epochs=None, X:np.ndarray=None, pick_component=0, return_mne=True):
         '''Apply spatial filter to epochs
     
         Parameters
@@ -284,15 +286,20 @@ class SpatialFilterFC():
         
         '''
         
-        X = epochs.get_data(copy=True)
+        if epochs:
+            X = epochs.get_data(copy=True)
+            
         X = np.transpose(X,(0,2,1)) # Ch to last dim
         Xf = X @ self.W[pick_component]
-        info = mne.create_info(ch_names=['ch'], ch_types=['eeg'], sfreq=1000)
         
-        return mne.EpochsArray(np.expand_dims(Xf,1), info,
-                               event_id=epochs.event_id, events=epochs.events,
-                               tmin=epochs.tmin, baseline=epochs.baseline)
-    
+        if return_mne:
+            info = mne.create_info(ch_names=['ch'], ch_types=['eeg'], sfreq=1000)
+            return mne.EpochsArray(np.expand_dims(Xf,1), info,
+                                event_id=epochs.event_id, events=epochs.events,
+                                tmin=epochs.tmin, baseline=epochs.baseline)
+        
+        return Xf
+        
     def apply_inverse(self, epochs:mne.Epochs, drop_components_ids):
         '''Perform the inverse transformation for sf
         
@@ -355,7 +362,7 @@ class SpatialFilterFC():
         '''Plot waveform of a given component for a given data'''
         
         # Apply filter
-        component = self.apply(epochs, component_id)
+        component = self.apply(epochs, pick_component=component_id)
         # Calculate evokeds
         evokeds = [component[id].average() for id in component.event_id]
         
@@ -392,4 +399,62 @@ class SpatialFilterFC():
         ax.set(xlabel='Component N', ylabel='Eigenvalue')
         
         plt.show()
+
+
         
+class FCSpatialFilter():
+    '''Spatial filtration with Fisher criterion compatable with sklearn'''
+    
+    def __init__(self, times:np.ndarray=None, time_win:tuple=None, component_to_pick=0):
+        '''
+        Parameters
+        ----------
+        * times: times that corresponds 3d dimention of X (epochs, channels, samples)
+        * time_win: time window to use when fitting a filter
+        * component_to_pick: an id of a component to use in the transform method
+        
+        '''
+        
+        self.times = times
+        self.time_win = time_win
+        self.component_to_pick = component_to_pick
+        
+    def fit(self, X, y):
+        
+        labels = list(set(y))
+        assert len(labels)==2, 'must provide data for 2 classes'
+        
+        # Devide data by classes
+        X1 = X[np.where(y==labels[0]),:,:].squeeze()
+        X2 = X[np.where(y==labels[1]),:,:].squeeze()
+        
+        # Pick a specific time range
+        if isinstance(self.times, np.ndarray):
+            X1 = X1[:,:,((self.times>=self.time_win[0]) & (self.times<=self.time_win[1]))]
+            X2 = X2[:,:,((self.times>=self.time_win[0]) & (self.times<=self.time_win[1]))]
+            
+        # Adjust shapes
+        X1 = np.transpose(X1, (1, 2, 0)) # (ch x time x epochs)
+        X2 = np.transpose(X2, (1, 2, 0)) # (ch x time x epochs)
+        
+        # Calculater spatial filters
+        W, d, A = FCsf(X1, X2)
+        
+        self.W = W
+        self.d = d
+        self.A = A
+        
+    def transform(self, X):
+        
+        X = np.transpose(X,(0,2,1)) # Ch to last dim
+        return X @ self.W[self.component_to_pick]
+    
+    def fit_transform(self, X, y):
+        
+        self.fit(X, y)
+        return self.transform(X)
+    
+    def get_params(self):
+        '''Returns filters, eigenvalues and spatial projections'''
+        
+        return self.W, self.d, self.A
